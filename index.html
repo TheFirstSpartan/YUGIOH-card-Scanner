@@ -37,12 +37,12 @@
             letter-spacing: 1px;
         }
 
-        /* Scanner Viewport Container */
+        /* FIX: Swapped to 4:3 landscape aspect ratio to match native phone camera feeds */
         .scanner-container {
             position: relative;
             width: 100%;
-            max-width: 400px;
-            aspect-ratio: 3 / 4;
+            max-width: 500px;
+            aspect-ratio: 4 / 3; 
             background-color: #000000;
             border: 3px solid #333333;
             border-radius: 12px;
@@ -69,13 +69,13 @@
             box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
         }
 
-        /* Target indicator for the Passcode at bottom left */
+        /* FIX: A larger, optimized target box for the passcode in the lower portion of the screen */
         .passcode-target {
             position: absolute;
-            bottom: 4%;
-            left: 4%;
-            width: 30%;
-            height: 6%;
+            bottom: 8%;
+            left: 8%;
+            width: 40%;
+            height: 12%;
             border: 2px solid #00FFCC;
             background-color: rgba(0, 255, 204, 0.1);
         }
@@ -83,7 +83,7 @@
         .controls {
             margin-top: 20px;
             width: 100%;
-            max-width: 400px;
+            max-width: 500px;
             display: flex;
             gap: 10px;
         }
@@ -113,7 +113,7 @@
         .result-panel {
             margin-top: 20px;
             width: 100%;
-            max-width: 400px;
+            max-width: 500px;
             background-color: #222222;
             border-radius: 8px;
             padding: 15px;
@@ -209,7 +209,8 @@
             try {
                 const constraints = {
                     video: {
-                        facingMode: { ideal: "environment" },
+                        // FIX: Forces mobile browsers to use the rear camera system instead of the selfie camera
+                        facingMode: { exact: "environment" },
                         width: { ideal: 1280 },
                         height: { ideal: 720 }
                     },
@@ -220,8 +221,19 @@
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
             } catch (err) {
-                console.error("Camera access denied: ", err);
-                statusMsg.innerText = "Error: Camera permissions required.";
+                console.warn("Main rear camera failed, trying fallback environment configuration...", err);
+                // Fallback constraint if the mobile device is strict about "exact" parameters
+                try {
+                    const fallbackConstraints = {
+                        video: { facingMode: "environment" },
+                        audio: false
+                    };
+                    const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                    video.srcObject = stream;
+                } catch (fallbackErr) {
+                    console.error("Camera access completely denied: ", fallbackErr);
+                    statusMsg.innerText = "Error: Camera permissions required.";
+                }
             }
         }
 
@@ -238,14 +250,11 @@
             // Step 1: Snapshot the frame onto the hidden canvas
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            /* Step 2: Crop out the Passcode Target Box
-               To keep this simple without heavy math, we will sample a localized snippet 
-               from the bottom left region of the captured camera resolution frame.
-            */
-            const cropX = canvas.width * 0.15;
-            const cropY = canvas.height * 0.78;
-            const cropWidth = canvas.width * 0.25;
-            const cropHeight = canvas.height * 0.10;
+            // FIX: Optimized math cropping coordinates for the 4:3 landscape bounding box area
+            const cropX = canvas.width * 0.10;
+            const cropY = canvas.height * 0.72;
+            const cropWidth = canvas.width * 0.35;
+            const cropHeight = canvas.height * 0.18;
 
             const croppedCanvas = document.createElement('canvas');
             croppedCanvas.width = cropWidth;
@@ -254,60 +263,4 @@
             
             croppedCtx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-            try {
-                // Step 3: Run the image frame crop through the Local Browser OCR API
-                const { data: { text } } = await ocrWorker.recognize(croppedCanvas);
-                const cleanedCode = text.replace(/\s+/g, '').trim();
-
-                if (cleanedCode.length >= 4) {
-                    statusMsg.innerText = `Detected Passcode: ${cleanedCode}. Querying DB...`;
-                    await fetchCardData(cleanedCode);
-                } else {
-                    statusMsg.innerText = "Passcode blurred. Align bottom-left corner and retry.";
-                    scanBtn.disabled = false;
-                }
-            } catch (ocrErr) {
-                console.error(ocrErr);
-                statusMsg.innerText = "Engine parsing error. Retry.";
-                scanBtn.disabled = false;
-            }
-        }
-
-        // Step 4: External API Request (YGOPRODECK Data Fetching)
-        async function fetchCardData(passcode) {
-            // Pad out leading zeros if the text parser drops them
-            const paddedCode = passcode.padStart(8, '0');
-            const apiEndpoint = `https://db.ygoprodeck.com/api/v7/cardinfo.php?id=${paddedCode}`;
-
-            try {
-                const response = await fetch(apiEndpoint);
-                if (!response.ok) throw new Error("Card not located in global indexing.");
-                
-                const data = await response.json();
-                const card = data.data[0];
-
-                // Display Parsed API Assets out to UI Layout
-                cardNameDisplay.innerText = card.name;
-                cardDescDisplay.innerText = `${card.type} | ${card.race} \n\n${card.desc}`;
-                
-                const price = card.card_prices?.[0]?.tcgplayer_price || "N/A";
-                cardPriceDisplay.innerText = `TCGPlayer Avg: $${price}`;
-                
-                resultPanel.style.display = "block";
-                statusMsg.innerText = "Match Confirmed.";
-            } catch (err) {
-                statusMsg.innerText = `No profile found for ID: ${paddedCode}`;
-            } finally {
-                scanBtn.disabled = false;
-            }
-        }
-
-        // Attach event triggers on bootup
-        scanBtn.addEventListener('click', executeScan);
-        window.addEventListener('DOMContentLoaded', () => {
-            startCamera();
-            initOCR();
-        });
-    </script>
-</body>
-</html>
+            // FIX:
